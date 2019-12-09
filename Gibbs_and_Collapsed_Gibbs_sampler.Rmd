@@ -1,0 +1,412 @@
+---
+title: "Comparison of Gibbs Sampler and Collapsed Gibbs Sampler under Normal Mixture Model"
+author: "Hongxuan Zhai & Ashley Lu"
+urlcolor: blue
+output: pdf_document
+header-includes:
+- \usepackage{float}
+- \usepackage{mathtools}
+- \usepackage{bm}
+- \usepackage{bbm}
+- \floatplacement{figure}{H}
+abstract: 'Normal mixture models are useful tools for both density estimation and clustering. A Gibbs sampler is used for making inference about the models. Besides the "classical" Gibbs sampler, the collapsed gibbs sampler is also tractable under conjugate assumptions. Under clustering problem, the collapsed gibbs sampler, by reducing number of sampled variables, usually yields better" estimation of the parameters. In our final project, we implement both Gibbs sampler and collapsed gibbs sampler and compare these two MCMC algorithms empirically.'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      comment = NA,
+                      warning = FALSE, 
+                      message = FALSE)
+
+```
+
+# Introduction
+
+Bayesian finite normal mixture with common $\sigma$:
+$$x_i | z_i \stackrel{ind}{\sim} N(\mu_{z_i}, \sigma^2)$$
+$$\mu_k \stackrel{iid}{\sim} N(\mu_0, \sigma^2_0)$$
+$$z_i | \pi \sim \sum_{k = 1}^{K} \pi_{k}\delta_{i}(\cdot)$$
+$$\pi \sim Dir(\alpha_1,...,\alpha_K)$$
+A Gibbs sampler can be used to make inference about this problem. In principle, we sample $\bm{\mu}$, $\bm{\pi}$ and $\bf{Z}$ iteratively from their complete conditionals and repeat this process $S$ times until "convergence". Gibbs sampler is widely used when the joint posterior is intractable but the conditionals are easy to draw samples from. Collapsed Gibbs sampler further considers the conditional random variables in the complete conditionals. By "integrating" out those random variables, we can make the sampler just sample the random variable of our interest. Collapsed Gibbs sampler usually leads to faster convergence of the Markov chain. The tradeoff is that collapsed Gibbs sampler is more costly per iteration. If we use bayesian mixture model for clustering, the variable of our interest is $\bf{Z}$, the mixture assignment variable and by collapsed Gibbs sampler, we only sample those $\bf{Z^{(s)}}, \quad s= 1,...,S$ at each iteration without sampling $\bm{\mu}$, $\bm{\pi}$.
+
+Before introducing collapsed gibbs sampler for normal mixture model, we need to pay more attention to some problems associated with bayesian mixture model. The main problem is label switching problem, which makes some inference unreliable.
+
+## Lable switching problem
+
+The lable switching problem in bayesian finite mixture model is described as swapping components and its probability in a mixture model leads to finitely many posterior maxima. For instance, given a mixture model with $K$ components, the likelihood function, $$f(x_i) = \sum_{k=1}^{K} \pi_{k}\cdot p(x_i |\theta_{k}),$$ remains unchanged under any permutation $\bm{\pi^{*}}$ of $\bm{\pi}$, where $\bm{\pi}$ $= (\pi_1,...,\pi_K)$. This effect will not inflencce our inference when the inferencial target is posterior predictive distribution, but this issues will play a role when we want to learn the clusterwise parameters and also the cluster assignments. In finite mixture of normal model, the effect of label switching leads to the marginal distribution of $\mu_k$'s from the MCMC output to be multimodel and every $\mu_k$'s marginal may look pretty similar, which make it invalid for making inference about all the $\mu_k$'s. Since our project focus on the clustering functionality of bayesian normal mixture model, it will be affected by the label switching issue. As you may expect, the lable switching issue generally get more complicated as the number of components $K$ grows. Given $K$, there will be $K!$ identical models which yeild exact the same likelihood. As the first step of exploring the difference between Gibbs sampler and collapsed Gibbs sampler, in this project, we do experiment with two component normal mixture model, the simplest case.
+
+# Gibbs Sampler and Collapsed Gibbs Sampler
+
+Given $K = 2$, our model can be rewritten as 
+$$x_i | z_i \stackrel{ind}{\sim} N(\mu_{z_i}, \sigma^2)$$
+$$\mu_k \stackrel{iid}{\sim} N(\mu_0, \sigma^2_0)$$
+$$z_i | \pi \sim \sum_{k = 1}^{2} \pi_{k}\delta_{i}(\cdot)$$
+$$\pi_{1} \sim Beta(\alpha, \beta),$$ with $\pi_{1} + \pi_{2} = 1.$
+
+## Gibbs sampler
+
+Complete conditionals for $\pi_1$:
+$$p(\pi_{1} | \bm{Z}) \propto \pi_1^{(\alpha -1)} (1- \pi_1)^{(\beta - 1)}\pi_1^{n_1}(1 - \pi_1)^{n_2} \sim Beta(\alpha + n_1, \beta + n_2),$$ where $n_{k} = ||i : z_i = k||$.
+
+Complete conditionals for $z_{i}$:
+$$p(z_{i} = 1 | \bm{\pi}, \bm{\mu}, x_i) \propto \pi_1 p(x_i | \mu_1, \sigma^2)$$
+$$p(z_{i} = 2 | \bm{\pi}, \bm{\mu}, x_i) \propto \pi_2 p(x_i | \mu_2, \sigma^2)$$
+and we draw $z_i | \bm{\pi}, \bm{\mu}, x_i$ from bernoulli distribution.
+
+Complete conditionals for $\mu_k$:
+$$p(\mu_k | \bm{\pi}, \bm{Z}, \bm{X}) \sim N(\frac{\sigma^2}{n_k \sigma_{0}^{2} + \sigma^2}\mu_0 + \frac{n_k\sigma_{0}^2}{n_k \sigma_{0}^{2} + \sigma^2}\bar{X_{k}}, (n_k / \sigma^2 + 1 / \sigma_{0}^{2})^{-1}),$$ where $\bar{X_{k}} = \frac{\sum_{i: z_i = k}x_i}{n_k}.$
+
+## Collapsed Gibbs sampler
+
+Given the form of $$p(z_{i}| Z_{-i}, \bm{\pi}, \bm{\mu}, \bm{X}),\quad where \quad Z_{-i} = (z_1,...,z_{i-1}, z_{i+1}, z_n),$$ we can further integrate out all the "nuisance" parameters and simplyfy the MCMC algorithm. If our problem is clustering, the collapsed Gibbs sampler is done by intergrating out $\bm{\pi}, \bm{\mu}$ in the condition part. After that we are left with only $p(z_{i} | Z_{-i}, \bm{X})$ and we do immediately updating the mixture components after resampling the mixture component. In fact, this process is feasiable under bayesian normal mixture model under our setting.
+
+To derive the collapsed Gibbs sampler for two component mixture model, we first factorize the desired conditional distribution $$p(z_{i}| Z_{-i},\bm{X})$$ as $$p(z_{i}| Z_{-i},\bm{X}) = p(z_i | x_i, Z_{-i}, X_{-i}), \quad where \quad X_{-i} = (x_1,...,x_{i-1}, x_{i+1},...,x_{n}).$$ Then by the conditional independency and the fact that conditional distribution is proposional to the jiont, we obtain 
+\begin{equation}
+\begin{split}
+p(z_i | x_i, Z_{-i}, X_{-i}) & \propto  p(z_i | Z_{-i}, X_{-i})p(x_{i}|Z_{-i}, X_{-i}, z_{i})\\
+ & \propto p(z_i | Z_{-i})p(x_{i}|Z_{-i}, X_{-i}, z_{i})
+\end{split}
+\end{equation}
+Under this kind of factorization, we can identify that the two component in our desired conditional distribution are nothing but two posterior predictive distribution.
+
+Since we know that $z_{i}$'s are discrete random variable that takes value from $\{1,2\}$, we can further calculate the proposional weights for sampling each $z_i$'s in the collapsed Gibbs sampler.
+
+### Derivation for posterior predictives
+
+Posterior predictive for $z_i$: 
+\begin{equation}
+\begin{split}
+p(z_i = 1 | Z_{-i}) & =  \int p(z_i = 1| \pi_1)p(\pi_1 | Z_{-i}, \alpha, \beta)d\pi_1\\
+ & = \int \pi_1 \frac{\pi_1 ^{\alpha_n^{-i} - 1} (1 - \pi_1)^{\beta_n^{-i} - 1}}{B(\alpha_n^{-i}, \beta_n^{-i})}d\pi_1\\
+ & = \frac{B(\alpha_n^{-i} + 1, \beta_n^{-i})}{B(\alpha_n^{-i}, \beta_n^{-i})} \\
+ & = \frac{n_1^{-i} + 1}{n - 1},
+\end{split}
+\end{equation}
+where $n_1^{-i} = \sum_{j \neq i}\mathbbm{1}(z_j = 1)$, $\alpha_n^{-i} = \alpha + n_1^{-i}$ and $\beta_n^{-i} = \beta + n_2^{-i}$. Note that this result is the same as prediction rules for urn model with two states and similar result can be derived for $z_i = 2$.
+
+Posterior predictive for $x_{i}$:
+\begin{equation}
+\begin{split}
+p(x_{i}|Z_{-i}, X_{-i}, z_{i} = 1) & = p(x_{i}|\{x_j | z_j = k, j \neq i \})\\
+ & = \int p(x_i | \mu_1, \sigma^2)p(\mu_1 | \{x_j | z_j = k, j \neq i \})d\mu_1\\
+ & \sim N(x_i | \frac{\sigma^2}{n_1^{-i} \sigma_{0}^{2} + \sigma^2}\mu_0 + \frac{n_1^{-i}\sigma_{0}^2}{n_1^{-i} \sigma_{0}^{2} + \sigma^2}\bar{X_{1}}^{-i}, (n_1^{-i} / \sigma^2 + 1 / \sigma_{0}^{2})^{-1}),
+\end{split}
+\end{equation}
+where $\bar{X_{1}}^{-i} = \frac{\sum_{\{j : z_j = 1, j \neq i\}}{x_j }}{n_1^{-i}}$. The case when $z_{i} = 2$ can be derived in a similar way.
+
+### Collapsed Gibbs algorithm
+
+With two predictive distribution, we summarize the collapsed Gibbs sampler for two component mixture model as follows:
+
+* Input: data $X$, $K$ and initilization of $\bm{Z}$.
+* for $m$ in \{1,...,M\}
+    + Calculate $n_1$, $n_2$, $\bar{X_{1}}$ and $\bar{X_{2}}$ from previous iteration. 
+       + for each $i$ in \{1,...,n\}, calculate
+          + $n_1^{-i}$, $n_2^{-i}$, $\bar{X_{1}}^{-i}$ and $\bar{X_{2}}^{-i}$.
+          + sample new $z_i$ from $p(z_{i} | Z_{-i}, \bm{X})$
+       + end inner loop
+* end outer loop
+
+# Simulation study
+
+We simulate 11 random dataset each of sample size 1000 from mixture distribution $0.2 \times N(2, 1) + 0.8 \times N(4, 1)$ with the first 200 being from component with mean 2 and remaining 800 being from component with mean 4. Within each iteration from both sampler, we calculate the cluster allocation accuracy $A^{(s)} = {\sum_{i =1}^{n} \mathbbm{1}(z_{i}^{(s)} = z_{i}^{(true)})} / n,$ and compare the two samplers based on those $A$'s. Agian, the MCMC output is affected by the lable swithcing problem.
+
+Hyper parameters are fixed at $\mu_0 = 3$, $\sigma_0^2 = 0.5$, $\alpha = 1$ and $\beta = 1$. The variance parameter $\sigma^2$ for each component is set at 1.
+
+
+```{r, cache=TRUE}
+set.seed(626)
+sim.data.1 <- c(rnorm(200, 1, 1), rnorm(800, 5, 2))
+sim.data.4 <- c(rnorm(200, 2, 1), rnorm(800, 4, 1))
+sim.data.5 <- c(rnorm(200, 2, 1), rnorm(800, 3, 1))
+
+# true allocation
+true.all <- c(rep(1, 200), rep(0, 800))
+
+# hyperparameter specification
+
+alpha = 1
+beta = 1 # uniform prior for pi
+
+mu0 <- 3
+sigma20 <- 0.5
+sigma2 <- 1
+
+# Gibbs sampler
+Gibbs <- function(niter, data, bad) {
+  
+  # initialization
+  if (bad) {
+  hc <- hclust(dist(data)^2, "cen")
+  z <- cutree(hc, k = 2)
+  mu1 <- as.numeric(sapply(split(data,z),mean)[1])
+  mu2 <- as.numeric(sapply(split(data,z),mean)[2])
+  z[which(z == 2)] <- 0 # recode 2 as 0
+  wh <- table(z) / 1000
+  pi <- as.numeric(wh[2])
+  set.seed(626)
+  z <- sample(c(0,1), size = length(data), replace = TRUE)
+  } else {
+  hc <- hclust(dist(data)^2, "cen")
+  z <- cutree(hc, k = 2)
+  mu1 <- as.numeric(sapply(split(data,z),mean)[1])
+  mu2 <- as.numeric(sapply(split(data,z),mean)[2])
+  z[which(z == 2)] <- 0 # recode 2 as 0
+  wh <- table(z) / 1000
+  pi <- as.numeric(wh[2])
+  }
+  
+  # precalculation
+  n <- length(data)
+  
+  # output preallocation
+  Z <- matrix(ncol = n, nrow = niter)
+  Pi <- rep(NA, niter)
+  Mu <- matrix(ncol = 2, nrow = niter)
+  pred.acc <- rep(NA, niter)
+  y.pred <- rep(NA, niter)
+  
+  for (i in seq(niter)) {
+    
+    # sample pi
+    n1 <- sum(z)
+    n2 <- n - n1
+    pi <- rbeta(1, alpha + n1, beta + n2)
+    
+    # sample z_i's
+    z.prob <- pi * dnorm(data, mu1, sqrt(sigma2)) /
+      (pi * dnorm(data, mu1, sqrt(sigma2)) + (1 - pi) * dnorm(data, mu2, sqrt(sigma2)))
+    ## convert z = 2 to z = 0
+    z <- rbinom(n, 1, z.prob)
+    
+    # sample mu_k's
+    
+    ## precalculation of some statistics
+    s1 <- sum(data[z == 1])
+    s2 <- sum(data[z == 0])
+    
+    mu1 <- rnorm(1, sigma2 * mu0 / (n1 * sigma20 + sigma2) +
+                   s1 * sigma20 / (n1 * sigma20 + sigma2),
+                 sqrt((n1 / sigma2 + 1 / sigma20) ** (-1)))
+    mu2 <- rnorm(1, sigma2 * mu0 / (n2 * sigma20 + sigma2) +
+                   s2 * sigma20 / (n2 * sigma20 + sigma2),
+                 sqrt((n2 / sigma2 + 1 / sigma20) ** (-1)))
+    
+    # calculate prediction accuracy
+    pred.acc[i] <- sum(z == true.all) / n
+    
+    # record the output
+    Z[i,] <- z
+    Pi[i] <- pi
+    id <- order(c(mu1, mu2), decreasing = FALSE)
+    Mu[i,] <- c(mu1, mu2)[id]
+    
+    # sample posterior predictives
+    binary.z <- rbinom(1, 1, Pi[i])
+    if(binary.z) {
+      y.pred[i] <- rnorm(1, Mu[i,1], sqrt(sigma2))
+    } else {
+      y.pred[i] <- rnorm(1, Mu[i,2], sqrt(sigma2))
+    }
+
+  }
+  return(list(Mu = Mu, Pi = Pi, Z = Z, acc = pred.acc, pred = y.pred))
+}
+
+# Collapsed gibbs sampler
+Collapsed_Gibbs <- function(niter, data, bad) {
+  
+  # initialization
+  if (bad) {
+  set.seed(626)
+  z <- sample(c(0,1), size = length(data), replace = TRUE)
+  } else {
+  hc <- hclust(dist(data)^2, "cen")
+  z <- cutree(hc, k = 2)
+  z[which(z == 2)] <- 0 # recode 2 as 0
+  }
+  # precalculation
+  n <- length(data)
+  
+  # output preallocation
+  Z <- matrix(ncol = n, nrow = niter)
+  Pi <- rep(NA, niter)
+  pred.acc <- rep(NA, niter)
+  
+  for (i in seq(niter)) {
+    # calculate statistic
+    n1 <- sum(z)
+    n2 <- n - n1
+    s1 <- sum(data[z == 1])
+    s2 <- sum(data[z == 0])
+    
+    # preallocation of z
+    z.temp <- rep(NA, n)
+    
+    # sample z_i's
+    for (j in seq(n)) {
+      if(z[j]) {
+        n1.c <- n1 - 1
+        s1.c <- s1 - data[j]
+        sigma2.post.c <- 1 / (n1.c / sigma2 + 1 / sigma20)
+        mu.post.c <- sigma2.post.c * (mu0 / sigma20 + s1.c / sigma2)
+        sigma2.post <- 1 / (n2 / sigma2 + 1 / sigma20)
+        mu.post <- sigma2.post * (mu0 / sigma20 + s2 / sigma2)
+        pi <- (alpha + n1.c) / (alpha + beta + n - 1) 
+        prob.c <- c(pi * dnorm(data[j], mu.post.c, sqrt(sigma2.post.c + sigma2)),
+                    (1 - pi) * dnorm(data[j], mu.post, sqrt(sigma2.post + sigma2)))
+        z.temp[j] <- sample(c(1,0), size = 1, prob = prob.c)
+      } else {
+        n2.c <- n2 - 1
+        s2.c <- s2 - data[j]
+        sigma2.post.c <- 1 / (n2.c / sigma2 + 1 / sigma20)
+        mu.post.c <- sigma2.post.c * (mu0 / sigma20 + s2.c / sigma2)
+        sigma2.post <- 1 / (n1 / sigma2 + 1 / sigma20)
+        mu.post <- sigma2.post * (mu0 / sigma20 + s1 / sigma2)
+        pi <- (alpha + n1) / (alpha + beta + n - 1)
+        prob.c <- c(pi * dnorm(data[j], mu.post, sqrt(sigma2.post + sigma2)),
+                    (1 - pi) * dnorm(data[j], mu.post.c, sqrt(sigma2.post.c + sigma2)))
+        z.temp[j] <- sample(c(1,0), size = 1, prob = prob.c)
+      }
+    }
+    z <- z.temp
+    
+    # record the output
+    Z[i,] <- z
+    pred.acc[i] <- sum(z == true.all) / n
+  }
+  return(list(Z = Z, acc = pred.acc))
+}
+
+Gibbs.out.1 <- Gibbs(10000, sim.data.1, FALSE)
+Coll.out.1 <- Collapsed_Gibbs(10000, sim.data.1, FALSE)
+
+Gibbs.out.4 <- Gibbs(10000, sim.data.4, FALSE)
+Coll.out.4 <- Collapsed_Gibbs(10000, sim.data.4, FALSE)
+
+Gibbs.out.5 <- Gibbs(10000, sim.data.5, FALSE)
+Coll.out.5 <- Collapsed_Gibbs(10000, sim.data.5, FALSE)
+
+# 10 random dataset for sim.data.4
+Gibbs.4 <- list()
+Coll.4 <- list()
+for (j in seq(10)) {
+  set.seed(626 + j)
+  sim <- c(rnorm(200, 2, 1), rnorm(800, 4, 1))
+  Gibbs.4[[j]] <- Gibbs(10000, sim, FALSE)
+  Coll.4[[j]] <- Collapsed_Gibbs(10000, sim, FALSE)
+}
+
+```
+
+Figure 1 is one plot for prediction accuracy from the MCMC output under two samplers. As the plot might suggest, in this MCMC sampling, the Gibbs sampler suffers from the lable switching problem from iteration around 6000 to 7000. This claim can be further checked by figure 2. The output of collapsed Gibbs sampler, however, seems to be more stable than the output from Gibbs sampler. This phenomenon can be just coincidence since the output is from one dataset and the MCMC algorithms only run for once. To have a more clear view of the phenomenon, we do this process 10 more times.
+
+```{r, fig.height = 3, fig.width = 8, fig.cap = 'Trace plots for A'}
+library(ggplot2)
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+ggplot() + geom_line(aes(x = c(1:10000), y = 1 - Gibbs.out.4$acc, colour = "Gibbs")) +
+  geom_line(aes(x = c(1:10000), y = 1 - Coll.out.4$acc, colour = "Collapsed")) + labs(x = "index", y = "A") +
+  scale_colour_manual(values=cbPalette[1:2])
+```
+
+Figure 3 show the output of $A$ from both Gibbs sampler and collapsed Gibbs sampler for 4 random dataset generated from mixture model $0.2 \times N(2, 1) + 0.8 \times N(4, 1)$. For these four dataset, we no longer observe the phenomenon in figure 1, but we can still see that the fluctuation of Gibbs sampler's trace plot tend to be bigger than that of collapsed Gibbs sampler. In terms of "prediction" acccuracy on average, both methods tend to be 80% accurate, which indicates that the means of allocation accuracy do not differ that much. In terms of convergence rate, both methods converge (or find the local mode in the posterior) pretty fast given reasonable initial values.
+
+
+```{r, fig.height = 2, fig.width = 7, fig.cap = 'Trace plots for pi'}
+library(ggplot2)
+ggplot() + geom_line(aes(x = c(1:10000), y = 1 - Gibbs.out.4$Pi)) +
+  labs(x = "index", y = expression(pi))
+```
+
+```{r, fig.height = 4, fig.width = 8, fig.cap = 'Trace plots for A for different dataset'}
+A.df <- data.frame(value = c(1-Coll.4[[1]]$acc,
+                             Gibbs.4[[1]]$acc,
+                             Coll.4[[2]]$acc,
+                             Gibbs.4[[2]]$acc,
+                             1 - Coll.4[[3]]$acc,
+                             1 - Gibbs.4[[3]]$acc,
+                             Coll.4[[4]]$acc,
+                             1 - Gibbs.4[[4]]$acc), 
+                   method = as.vector(replicate(4, rep(c("Collapsed", "Gibbs"), each = 10000))),
+                   dataset = rep(c(1:4), each = 20000),
+                   index = as.vector(replicate(4, rep(c(1:10000), 2))))
+ggplot(A.df, aes(x = index, y = value, colour = method)) + geom_line() + facet_wrap(~ dataset, ncol = 2) +
+  scale_colour_manual(values=cbPalette[c(3,8)])
+```
+
+Figure 4 describes the mean allocation accuracy and its uncertainty. The dot within the error bar represents the mean value of allocation accuracy and the error bar is given by plus and minus one standard deviation of the allocation accuracy's MCMC output. From the plot, we can see clearly that collapsed gibbs sampler's results have less uncertainty and tend to be more stable in assigning "good" allocation. However, in dataset 6 and 11, Gibbs sampler's results are relatively unstable. Especially in dataset 6, Gibbs sampler's results behave more or less like a random guessing.
+
+We also do the same experiment under different dataset and observe similar pattern of the performance of those two different MCMC method. As is always the case, the performance (allocation accuracy) of two samplers is not only affected by lable switching, but also heavily predetermined by the intrinsic level of difficulty of the clustering problem. This is equivalent to say that if two clusters' mean parameters are really close, we do not expect the two MCMC algorithm to give "good" clustering results. in which two method are both inefficient or redundant.
+
+```{r, fig.height = 3, fig.width = 8, fig.cap = 'Error bar plots for A'}
+B.df <- data.frame(m.value = c(mean(1-Coll.4[[1]]$acc),
+                             mean(Gibbs.4[[1]]$acc),
+                             mean(Coll.4[[2]]$acc),
+                             mean(Gibbs.4[[2]]$acc),
+                             mean(1 - Coll.4[[3]]$acc),
+                             mean(1 - Gibbs.4[[3]]$acc),
+                             mean(Coll.4[[4]]$acc),
+                             mean(1 - Gibbs.4[[4]]$acc),
+                             mean(Coll.4[[5]]$acc),
+                             mean(Gibbs.4[[5]]$acc),
+                             mean(1 - Coll.4[[6]]$acc),
+                             mean(Gibbs.4[[6]]$acc),
+                             mean(1 - Coll.4[[7]]$acc),
+                             mean(1 - Gibbs.4[[7]]$acc),
+                             mean(1 - Coll.4[[8]]$acc),
+                             mean(1 - Gibbs.4[[8]]$acc),
+                             mean(Coll.4[[9]]$acc),
+                             mean(Gibbs.4[[9]]$acc),
+                             mean(Coll.4[[10]]$acc),
+                             mean(Gibbs.4[[10]]$acc),
+                             mean(1 - Coll.out.4$acc),
+                             mean(1 - Gibbs.out.4$acc)),
+                   sd.value = c(sd(1-Coll.4[[1]]$acc),
+                             sd(Gibbs.4[[1]]$acc),
+                             sd(Coll.4[[2]]$acc),
+                             sd(Gibbs.4[[2]]$acc),
+                             sd(1 - Coll.4[[3]]$acc),
+                             sd(1 - Gibbs.4[[3]]$acc),
+                             sd(Coll.4[[4]]$acc),
+                             sd(1 - Gibbs.4[[4]]$acc),
+                             sd(Coll.4[[5]]$acc),
+                             sd(Gibbs.4[[5]]$acc),
+                             sd(1 - Coll.4[[6]]$acc),
+                             sd(Gibbs.4[[6]]$acc),
+                             sd(1 - Coll.4[[7]]$acc),
+                             sd(1- Gibbs.4[[7]]$acc),
+                             sd(1 - Coll.4[[8]]$acc),
+                             sd(1 - Gibbs.4[[8]]$acc),
+                             sd(Coll.4[[9]]$acc),
+                             sd(Gibbs.4[[9]]$acc),
+                             sd(Coll.4[[10]]$acc),
+                             sd(Gibbs.4[[10]]$acc),
+                             sd(1 - Coll.out.4$acc),
+                             sd(1 - Gibbs.out.4$acc)),
+                   method = as.vector(replicate(11, rep(c("Collapsed", "Gibbs")))),
+                   dataset = rep(c(1:11), each = 2))
+ggplot(B.df, aes(x = dataset, y = m.value, group = method,
+                 colour = method))  + geom_point() + geom_line() +
+  geom_errorbar(aes(ymin = m.value - 1 * sd.value, ymax = m.value + 1 * sd.value)) + labs(y = "mean of A")
+  
+
+```
+
+# Conclusion and Problem
+
+In this final project, we compare Gibbs sampler and collapsed Gibbs sampler under the simplest two componet normal mixture model. The comparison criterion is based on the allocation accuracy from the MCMC output. Our findings are that collapsed Gibbs sampler yeild better MCMC result in the sense of the allocation accuracy's fluctuation is smaller. However, as we always mentioned in this project, lable switching should not be ignored in this clustering problem. But from our empirical resluts under our simulation dataset, collapsed Gibbs sampler seems to be less affected by lable swithcing.
+
+Limitations for our project are also obvious. We choose number-of-component parameter $K = 2$ only because, to some extent, we can ameliorate the lable switching problem since there are only two models with its labels switched that yeild the same likelihood and the models are mutually exclusive. With $K$ increases, more advanced techinques dealing with lable switching should be done for making reliable inference about the mixture component.
+
+The future work is to compare those two samplers under nonparametric mixture model where the $K$, the number of mixture component, is no longer fixed but a random variable. Both Gibbs sampler and collapsed Gibbs sampler can be implemented for making inference about $K$. Also notice that this random quantity $K$ is not affected by lable switching and thus the nonparametric model is a more appropriate setting for comparing or exploring the differncenes of Gibbs sampler and collapsed Gibbs sampler. Chances are that with nonparametric model, collapsed Gibbs sampler will yield faster inference about $K$ in terms of convergence.
+
+# Appendix
+
+Codes available at: https://github.com/HongxuanZhai/BDA_final_project
+
+
+# Reference
+
+1. http://sap.ist.i.kyoto-u.ac.jp/members/yoshii/lectures/pattern_recognition/2017/20170606-npb-gmm.pdf
+2. http://www.cs.columbia.edu/~blei/fogm/2015F/notes/mixtures-and-gibbs.pdf
+3. https://dp.tdhopper.com/collapsed-gibbs/
